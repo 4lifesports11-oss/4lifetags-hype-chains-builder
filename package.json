@@ -1,0 +1,9 @@
+Add these lines to the _redirects file in your MAIN 4lifetags.com Netlify site.
+
+Replace YOUR-HYPE-CHAINS-NETLIFY-SITE.netlify.app with the URL of the NEW Hype Chains Netlify project.
+
+IMPORTANT: Put the function proxy line first.
+
+/Hype-Chains/.netlify/functions/* https://YOUR-HYPE-CHAINS-NETLIFY-SITE.netlify.app/.netlify/functions/:splat 200!
+/Hype-Chains/* https://YOUR-HYPE-CHAINS-NETLIFY-SITE.netlify.app/:splat 200!
+/Hype-Chains https://YOUR-HYPE-CHAINS-NETLIFY-SITE.netlify.app/ 200!

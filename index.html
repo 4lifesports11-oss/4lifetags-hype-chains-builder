@@ -1,0 +1,179 @@
+const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-04";
+
+function json(statusCode, body) {
+  return {
+    statusCode,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+    },
+    body: JSON.stringify(body),
+  };
+}
+
+function toVariantGid(value) {
+  if (!value) return "";
+  const id = String(value).trim();
+  if (id.startsWith("gid://shopify/ProductVariant/")) return id;
+  return `gid://shopify/ProductVariant/${id}`;
+}
+
+function sizeKey(size) {
+  const value = String(size || "").toLowerCase();
+  if (value.includes("small")) return "SMALL";
+  if (value.includes("large")) return "LARGE";
+  return "MEDIUM";
+}
+
+function variantForSize(size) {
+  const key = sizeKey(size);
+  const envName = `SHOPIFY_HYPE_CHAIN_${key}_VARIANT_ID`;
+  return toVariantGid(process.env[envName]);
+}
+
+function cleanValue(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join(" • ");
+  return String(value || "").trim();
+}
+
+function attributesForItem(item, index) {
+  const pattern = Array.isArray(item.pattern) ? item.pattern.filter(Boolean) : [];
+  const designInfo =
+    item.selection === "Choose a Team" ? item.teamText :
+    item.selection === "Describe Your Design" ? item.designText :
+    item.selection === "Upload a Logo" ? item.uploadFile :
+    "";
+
+  return [
+    { key: "Builder item", value: cleanValue(item.name || `Hype Chain ${index + 1}`) },
+    { key: "Selection type", value: cleanValue(item.selection) },
+    { key: "Design info", value: cleanValue(designInfo) },
+    { key: "Chain editor", value: cleanValue(item.editorMode) },
+    { key: "Basic chain color", value: cleanValue(item.basicColor) },
+    { key: "Confirmed pattern", value: item.patternConfirmed ? cleanValue(pattern) : "None" },
+    { key: "Size", value: cleanValue(item.size) },
+    { key: "Special request", value: cleanValue(item.request || "None") },
+    { key: "How they heard", value: cleanValue(item.heard || "Not selected") },
+  ].filter((attr) => attr.value);
+}
+
+exports.handler = async (event) => {
+  if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
+  if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
+
+  const shopDomain = process.env.SHOPIFY_STORE_DOMAIN;
+  const storefrontToken = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+  const patternAddonVariantId = toVariantGid(process.env.SHOPIFY_PATTERN_BUILDER_ADDON_VARIANT_ID);
+
+  if (!shopDomain || !storefrontToken) {
+    return json(500, {
+      error: "Missing Shopify environment variables. Set SHOPIFY_STORE_DOMAIN and SHOPIFY_STOREFRONT_ACCESS_TOKEN in Netlify.",
+    });
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(event.body || "{}");
+  } catch {
+    return json(400, { error: "Invalid JSON body." });
+  }
+
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  if (!items.length) return json(400, { error: "No Hype Chain items were sent to checkout." });
+
+  const lines = [];
+
+  items.forEach((item, index) => {
+    const merchandiseId = variantForSize(item.size);
+    if (!merchandiseId) {
+      throw new Error(`Missing variant ID for ${item.size || "Medium"}. Check Netlify environment variables.`);
+    }
+
+    const quantity = Math.max(1, Number(item.quantity || 1));
+    const attributes = attributesForItem(item, index);
+
+    lines.push({
+      merchandiseId,
+      quantity,
+      attributes,
+    });
+
+    if (String(item.editorMode || "").toLowerCase() === "advanced" && patternAddonVariantId) {
+      lines.push({
+        merchandiseId: patternAddonVariantId,
+        quantity,
+        attributes: [
+          { key: "Add-on for", value: cleanValue(item.name || `Hype Chain ${index + 1}`) },
+          { key: "Confirmed pattern", value: cleanValue(item.pattern || []) || "Pattern Builder" },
+        ],
+      });
+    }
+  });
+
+  const mutation = `
+    mutation CreateCart($input: CartInput!) {
+      cartCreate(input: $input) {
+        cart {
+          id
+          checkoutUrl
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const endpoint = `https://${shopDomain}/api/${SHOPIFY_API_VERSION}/graphql.json`;
+
+  const shopifyResponse = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Storefront-Access-Token": storefrontToken,
+    },
+    body: JSON.stringify({
+      query: mutation,
+      variables: {
+        input: {
+          lines,
+          attributes: [
+            { key: "Builder", value: "4LifeTags Hype Chain Builder" },
+            { key: "Source", value: "Netlify custom builder" },
+          ],
+        },
+      },
+    }),
+  });
+
+  const result = await shopifyResponse.json();
+
+  if (!shopifyResponse.ok || result.errors) {
+    return json(500, {
+      error: "Shopify API error.",
+      details: result.errors || result,
+    });
+  }
+
+  const userErrors = result?.data?.cartCreate?.userErrors || [];
+  if (userErrors.length) {
+    return json(400, {
+      error: userErrors.map((e) => e.message).join(" "),
+      details: userErrors,
+    });
+  }
+
+  const checkoutUrl = result?.data?.cartCreate?.cart?.checkoutUrl;
+  if (!checkoutUrl) {
+    return json(500, { error: "Shopify did not return a checkout URL.", details: result });
+  }
+
+  return json(200, {
+    checkoutUrl,
+    cartId: result.data.cartCreate.cart.id,
+  });
+};
