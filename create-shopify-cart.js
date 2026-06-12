@@ -1,3 +1,4 @@
+const FUNCTION_VERSION = "hype-chain-combined-upload-v3";
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-04";
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || "10");
 
@@ -291,6 +292,8 @@ async function handleUploadImage(payload) {
   const publicUrl = await getShopifyFilePublicUrl(createdFile.id);
 
   return send(200, {
+    version: FUNCTION_VERSION,
+    action: "uploadImage",
     fileId: createdFile.id,
     status: createdFile.fileStatus,
     url: publicUrl || "",
@@ -303,7 +306,7 @@ async function handleUploadImage(payload) {
 
 async function handleCheckout(payload) {
   const items = Array.isArray(payload.items) ? payload.items : [];
-  if (!items.length) return send(400, { error: "No items were sent to checkout." });
+  if (!items.length) return send(400, { error: "No items were sent to checkout. If you were uploading an image, the deployed function is not receiving the uploadImage action.", version: FUNCTION_VERSION });
 
   const lines = [];
 
@@ -379,6 +382,8 @@ async function handleCheckout(payload) {
   }
 
   return send(200, {
+    version: FUNCTION_VERSION,
+    action: "checkout",
     checkoutUrl: store.result.data.cartCreate.cart.checkoutUrl,
     cartId: store.result.data.cartCreate.cart.id
   });
@@ -386,8 +391,16 @@ async function handleCheckout(payload) {
 
 exports.handler = async function (event) {
   try {
-    if (event.httpMethod === "OPTIONS") return send(200, { ok: true });
-    if (event.httpMethod !== "POST") return send(405, { error: "Method not allowed" });
+    if (event.httpMethod === "OPTIONS") return send(200, { ok: true, version: FUNCTION_VERSION });
+    if (event.httpMethod === "GET") {
+      return send(200, {
+        ok: true,
+        version: FUNCTION_VERSION,
+        message: "Combined Hype Chain function is installed.",
+        supports: ["uploadImage", "checkout"]
+      });
+    }
+    if (event.httpMethod !== "POST") return send(405, { error: "Method not allowed", version: FUNCTION_VERSION });
 
     let payload;
     try {
