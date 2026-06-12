@@ -67,6 +67,7 @@ input[type=file]{display:none;}
 .hint{margin-top:8px;color:var(--muted);font-size:12px;line-height:1.45;font-weight:760;}
 .upload-status{margin-top:10px;font-weight:800;color:var(--soft);font-size:13px;}
 .upload-status.success{color:#53ff93;}
+.upload-status.error{color:#ff6b6b;}
 .section-shell{max-width:1040px;margin:0 auto;}
 .mode-toggle{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 auto 22px;max-width:780px;}
 .mode-btn{min-height:110px;border:1px solid var(--line);border-radius:22px;background:var(--panel);color:#fff;padding:18px;text-align:left;cursor:pointer;box-shadow:var(--shadow);}
@@ -6637,6 +6638,9 @@ const state = {
   teamText:'',
   designText:'',
   uploadFile:'',
+  uploadFileName:'',
+  uploadFileUrl:'',
+  uploadFileId:'',
   editorMode:'Basic',
   basicColor:'White',
   activeAdvancedColor:'Red',
@@ -6867,6 +6871,46 @@ function mockCheckout(){
   alert(summary);
 }
 
+
+function checkoutFunctionPath(){
+  return window.location.pathname.toLowerCase().startsWith('/hype-chains')
+    ? '/Hype-Chains/.netlify/functions/create-shopify-cart'
+    : '/.netlify/functions/create-shopify-cart';
+}
+
+function readFileAsDataUrl(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read the image file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadImageThroughExistingShopifyFunction(file){
+  const dataUrl = await readFileAsDataUrl(file);
+
+  const response = await fetch(checkoutFunctionPath(), {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      action:'uploadImage',
+      filename:file.name,
+      mimeType:file.type || 'application/octet-stream',
+      dataUrl
+    })
+  });
+
+  const data = await response.json().catch(()=>({}));
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Image upload failed. Please try again.');
+  }
+
+  return data;
+}
+
+
 document.addEventListener('DOMContentLoaded',()=>{
   renderBasicColors();
   renderBasicPreview();
@@ -6878,12 +6922,40 @@ document.addEventListener('DOMContentLoaded',()=>{
   byId('teamInput').addEventListener('input', updateReview);
   byId('designInput').addEventListener('input', updateReview);
   byId('requestInput').addEventListener('input', updateReview);
-  byId('logoUpload').addEventListener('change', event=>{
+  byId('logoUpload').addEventListener('change', async event=>{
     const file=event.target.files[0]; if(!file) return;
-    state.uploadFile=file.name; byId('fileName').textContent=file.name;
-    byId('uploadStatus').className='upload-status success';
-    byId('uploadStatus').textContent='Image uploaded successfully.';
+
+    state.uploadFileName=file.name;
+    state.uploadFile=file.name;
+    state.uploadFileUrl='';
+    state.uploadFileId='';
+
+    byId('fileName').textContent=file.name;
+    byId('uploadStatus').className='upload-status';
+    byId('uploadStatus').textContent='Uploading image...';
     updateReview();
+
+    try{
+      const uploaded = await uploadImageThroughExistingShopifyFunction(file);
+      state.uploadFileUrl = uploaded.url || '';
+      state.uploadFileId = uploaded.fileId || '';
+      state.uploadFile = uploaded.url || uploaded.fileId || file.name;
+
+      byId('fileName').textContent=file.name;
+      byId('uploadStatus').className='upload-status success';
+      byId('uploadStatus').textContent = uploaded.url
+        ? 'Image uploaded successfully. The image link will appear on your Shopify order.'
+        : 'Image uploaded successfully. Shopify is still processing the image link.';
+      updateReview();
+    }catch(error){
+      state.uploadFile=file.name;
+      state.uploadFileUrl='';
+      state.uploadFileId='';
+      byId('uploadStatus').className='upload-status error';
+      byId('uploadStatus').textContent=error.message || 'Image upload failed. Please try again.';
+      alert(error.message || 'Image upload failed. Please try again.');
+      updateReview();
+    }
   });
   selectDesignType('Choose a Team');
   setEditorMode('Basic');
@@ -7948,7 +8020,7 @@ function patternPreviewHtmlFromItem(item, compact){
       const response = await fetch((window.location.pathname.toLowerCase().startsWith('/hype-chains') ? '/Hype-Chains/.netlify/functions/create-shopify-cart' : '/.netlify/functions/create-shopify-cart'), {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ items: buildCheckoutItems() })
+        body: JSON.stringify({ action:'checkout', items: buildCheckoutItems() })
       });
 
       const data = await response.json().catch(function(){ return {}; });
