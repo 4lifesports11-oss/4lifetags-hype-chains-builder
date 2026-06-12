@@ -1,0 +1,1 @@
+Replace your GitHub repo root index.html with the index.html inside this ZIP. Upload message now says the image has been uploaded.

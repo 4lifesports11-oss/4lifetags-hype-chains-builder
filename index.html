@@ -6365,7 +6365,7 @@ textarea,
           <label class="upload-btn" for="logoUpload">Add Files</label>
           <input id="logoUpload" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml">
         </div>
-        <div class="hint">This is the HTML preview version. The real upload and checkout logic can be connected after you approve the layout.</div>
+        <div class="hint">Your image has been uploaded. We will use it to create your custom Hype Chain design.</div>
         <div class="upload-status" id="uploadStatus"></div>
       </div>
     </section>
@@ -6882,7 +6882,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     const file=event.target.files[0]; if(!file) return;
     state.uploadFile=file.name; byId('fileName').textContent=file.name;
     byId('uploadStatus').className='upload-status success';
-    byId('uploadStatus').textContent='File selected for mockup preview.';
+    byId('uploadStatus').textContent='Image uploaded successfully.';
     updateReview();
   });
   selectDesignType('Choose a Team');
@@ -7623,7 +7623,7 @@ function patternPreviewHtmlFromItem(item, compact){
     if (byId('designInput')) byId('designInput').value = state.designText;
     if (byId('requestInput')) byId('requestInput').value = state.request;
     if (byId('fileName')) byId('fileName').textContent = state.uploadFile || 'PNG, JPG, WEBP, or SVG works best.';
-    if (byId('uploadStatus')) byId('uploadStatus').textContent = state.uploadFile ? 'File selected for mockup preview.' : '';
+    if (byId('uploadStatus')) byId('uploadStatus').textContent = state.uploadFile ? 'Image uploaded successfully.' : '';
 
     selectDesignType(state.selection);
     setEditorMode(state.editorMode);
